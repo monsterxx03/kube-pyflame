@@ -10,6 +10,13 @@ example svg file:
 
 ## Install
 
+wget https://raw.githubusercontent.com/monsterxx03/kube-pyflame/master/kubectl-pyflame 
+
+chmod +x kubectl-pyflame 
+
+mv kubectl-pyflame /usr/local/bin/
+
+kubectl pyflame -h
 
 ## Usage
 
