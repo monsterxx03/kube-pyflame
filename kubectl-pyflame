@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+
+set -o pipefail
+set -o nounset
+set -o errexit
+
+trap 'echo "cleanup debug pod."  && kubectl delete pod $DEBUG_POD -n $NAMESPACE >/dev/null 2>&1' 1
+
+usage() { echo -e "Usage: kubectl pyflame -n namespace1 -p pod-name -m python3" && grep " .)\ #" $0; exit 0; }
+[ $# -eq 0 ] && usage
+
+POD=""
+IMAGE="monsterxx03/pyflame:latest"
+NAMESPACE="default"
+DEBUG_POD="pyflame-debug"
+MATCH=""
+SECONDS="1"
+RATE="0.01"
+
+while getopts ":i:p:n:m:s:r:h" arg; do
+ case $arg in
+   i) # Specify image (default monsterxx03/pyflame:latest)
+     IMAGE=${OPTARG}
+     ;;
+   p) # Specify pod name.
+     POD=${OPTARG}
+     ;;
+   n) # Pod namespace
+     NAMESPACE=${OPTARG}
+     ;;
+   m) # Match process command
+     MATCH=${OPTARG}
+     ;;
+   s) # seconds to run pyflame (default 1)
+     SECONDS=${OPTARG}
+     ;;
+   r) # pyflame sample rate (default 0.01)
+     RATE=${OPTARG}
+     ;;
+   h) # Display help.
+     usage
+     exit 0
+     ;;
+   -- ) # Optional command to execute. Defaults to /bin/sh
+     ;;
+   *)
+     ;;
+ esac
+done
+
+[[ -z $POD ]] && echo -e "missing pod name" && exit 100
+[[ -z $MATCH ]] && echo -e "missing MATCH" && exit 100
+
+nodeName=$(kubectl get pod ${POD} -n ${NAMESPACE} -o jsonpath='{.spec.nodeName}')
+kubectl create -f - <<EOF
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${DEBUG_POD}
+  namespace: ${NAMESPACE}
+spec:
+  terminationGracePeriodSeconds: 0
+  hostPID: true
+  containers:
+  - command: ['sh', '-c', 'while true; do sleep 10; done;']
+    image: ${IMAGE}
+    imagePullPolicy: IfNotPresent
+    name: pyflame
+    securityContext:
+      privileged: true
+  nodeSelector:
+     kubernetes.io/hostname: ${nodeName}
+EOF
+kubectl wait --for=condition=Ready pod/${DEBUG_POD} -n ${NAMESPACE} --timeout=120s
+
+output=$(kubectl exec ${DEBUG_POD} -n ${NAMESPACE} --  ps -eo pid,pcpu,rss,command --sort -pcpu | (IFS= read -r header; echo "$header"; grep $MATCH; ))
+pid=""
+cat <<EOF
+Inspect which process ?
+$output
+EOF
+read -p "pid: " pid
+[[ -z $pid ]] && echo -e "abort without pid" && exit 1
+echo "pyflame snapshoting ..."
+kubectl exec ${DEBUG_POD} -n ${NAMESPACE} -- bash -c "pyflame -p ${pid} -s $SECONDS  | flamegraph.pl  > /tmp/pyflame.svg"
+echo "Downloading pyflame.svg"
+kubectl cp ${DEBUG_POD}:/tmp/pyflame.svg pyflame.svg -n ${NAMESPACE} >/dev/null 2>&1
+echo "cleanup debug pod"
+kubectl delete pod ${DEBUG_POD} -n ${NAMESPACE}
