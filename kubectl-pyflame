@@ -82,7 +82,7 @@ EOF
 read -p "pid: " pid
 [[ -z $pid ]] && echo -e "abort without pid" && exit 1
 echo "pyflame snapshoting ..."
-kubectl exec ${DEBUG_POD} -n ${NAMESPACE} -- bash -c "pyflame -p ${pid} -s $SECONDS  | flamegraph.pl  > /tmp/pyflame.svg"
+kubectl exec ${DEBUG_POD} -n ${NAMESPACE} -- bash -c "pyflame -p ${pid} -s $SECONDS -r $RATE  | flamegraph.pl  > /tmp/pyflame.svg"
 echo "Downloading pyflame.svg"
 kubectl cp ${DEBUG_POD}:/tmp/pyflame.svg pyflame.svg -n ${NAMESPACE} >/dev/null 2>&1
 echo "cleanup debug pod"
